@@ -15,7 +15,7 @@ use futures::future::FutureResult;
 use hyper::{Get, Post, StatusCode};
 use hyper::header::ContentLength;
 use hyper::server::{Http, Service, Request, Response};
-use hyper::client::{Request as ClientRequest};
+use hyper::client::Request as ClientRequest;
 static INDEX: &'static [u8] = b"Try POST /echo";
 use clap::{Arg, App, SubCommand};
 use std::io::BufReader;
@@ -23,7 +23,7 @@ use futures::{Future, Stream};
 use futures::future::join_all;
 use tokio_core::reactor::Core;
 use std::io;
-use std::io::{Write};
+use std::io::Write;
 use std::io::stdout;
 use std::str::from_utf8;
 use hyper::{Client, Chunk};
@@ -56,42 +56,52 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
     let mut core = tokio_core::reactor::Core::new().unwrap();
     let handle = core.handle();
     let client = &Client::new(&handle);
-    let work = drivers.iter_mut().map(move |element| {
-        let url = format!("http://{}/sessions", element.ip).as_str().parse::<hyper::Uri>().unwrap();
-        client.get(url.clone()).then(move |res| {
-            println!("url: {:?}", url);
-            println!("response: {:?}", res);
-            match res {
-                Ok(response) => {
-                    let fut = response.body().fold::<_, String, _>(String::new(), |mut acc, chunk| {
-                        let mut z : &[u8] = &*chunk;
-                        z.read_to_string(&mut acc);
-                        let result: Result<String, hyper::Error> = Ok(acc);
-                        result
-                    }).map_err(|_| "Ошибка");
-                    fut.and_then(|res_string| {
-                        if res_string == "Ошибка" {
-                            element.disabled = true;
-                            Ok(())
-                        } else {
-                            element.disabled = false;
-                            let value : Value = serde_json::from_str(&res_string.as_str()).unwrap();
-                            element.current_browsers_count = value["value"].as_array().unwrap().len() as u32;
-                            Ok(())
-                        }
-                    })
-                },
-                Err(err) => {
-                    Ok(Err(()))
+    let work = drivers.iter_mut()
+        .map(move |element| {
+            let url =
+                format!("http://{}/sessions", element.ip).as_str().parse::<hyper::Uri>().unwrap();
+            client.get(url.clone()).then(move |response| {
+                println!("url: {:?}", url);
+                println!("response: {:?}", response);
+                match response {
+                    Ok(success_response) => {
+                        success_response
+                            .body()
+                            .fold::<_, String, _>(String::new(), move |mut acc, chunk| {
+                                let mut z: &[u8] = &*chunk;
+                                z.read_to_string(&mut acc);
+                                let result: Result<String, hyper::Error> = Ok(acc);
+                                result
+                            })
+                            .then(move |response_payload| {
+                                let response_payload =
+                                    response_payload.unwrap_or(String::from("Ошибка"));
+                                if response_payload == "Ошибка" {
+                                    element.disabled = true;
+                                    Ok::<(), ()>(())
+                                } else {
+                                    element.disabled = false;
+                                    let value: Value = serde_json::from_str(&response_payload.as_str())
+                                        .unwrap();
+                                    element.current_browsers_count =
+                                        value["value"].as_array().unwrap().len() as u32;
+                                    Ok::<(), ()>(())
+                                }
+                            }).wait()
+                    },
+                    Err(error_response) => {
+                        Ok::<(), ()>(())
+                    }
                 }
-            }
+
+            })
         })
-    }).collect::<Vec<_>>();
+        .collect::<Vec<_>>();
     let work = join_all(work);
     core.run(work).unwrap();
 }
 
-//fn kill_all(drivers_session: &Vec<Result<Value, hyper::Error>>, drivers: &Vec<ChromeDriver>) {
+// fn kill_all(drivers_session: &Vec<Result<Value, hyper::Error>>, drivers: &Vec<ChromeDriver>) {
 //    let mut core = tokio_core::reactor::Core::new().unwrap();
 //    let handle = core.handle();
 //    let client = &Client::new(&handle);
@@ -101,7 +111,8 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
 //            drivers_session.iter().flat_map(move |ref session| {
 //                let session = session.unwrap();
 //                session["value"].as_array().unwrap().iter().map(move |browser| {
-//                    let url = format!("http://{}/session/{}", driver.ip, browser["id"].as_str().unwrap()).as_str().parse::<hyper::Uri>().unwrap();
+//                    let url = format!("http://{}/session/{}", driver.ip, browser["id"].as_str()\
+// .unwrap()).as_str().parse::<hyper::Uri>().unwrap();
 //                    println!("url: {:?}", url);
 //                    let request = ClientRequest::new(Method::Delete, url);
 //                    client.request(request).and_then(|res| {
@@ -121,7 +132,7 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
 //    }).collect::<Vec<_>>();
 //    let work = join_all(work);
 //    let result = core.run(work).unwrap();
-//}
+// }
 
 impl Service for Test {
     type Request = Request;
@@ -137,19 +148,16 @@ impl Service for Test {
                 Response::new()
                     .with_header(ContentLength(INDEX.len() as u64))
                     .with_body(INDEX)
-            },
-//            (&Get, "/killall") => {
-//                let drivers_session = update_drivers_information(&mut drivers);
-//                println!("Drivers session: {:?}", drivers_session);
-////                kill_all(&drivers_session, &drivers);
-//                Response::new()
-//                    .with_header(ContentLength(INDEX.len() as u64))
-//                    .with_body(INDEX)
-//            },
-            _ => {
-                Response::new()
-                    .with_status(StatusCode::NotFound)
             }
+            //            (&Get, "/killall") => {
+            //                let drivers_session = update_drivers_information(&mut drivers);
+            //                println!("Drivers session: {:?}", drivers_session);
+            // /                kill_all(&drivers_session, &drivers);
+            //                Response::new()
+            //                    .with_header(ContentLength(INDEX.len() as u64))
+            //                    .with_body(INDEX)
+            //            },
+            _ => Response::new().with_status(StatusCode::NotFound),
         })
     }
 }
@@ -169,11 +177,13 @@ fn main() {
         .get_matches();
     let file = std::fs::File::open(matches.value_of("config").unwrap()).unwrap();
     let mut buf_reader = BufReader::new(file);
-    let chrome_drivers : Arc<Mutex<Vec<ChromeDriver>>> = Arc::new(Mutex::new(serde_json::from_reader(buf_reader).unwrap()));
+    let chrome_drivers: Arc<Mutex<Vec<ChromeDriver>>> =
+        Arc::new(Mutex::new(serde_json::from_reader(buf_reader).unwrap()));
     let addr = "127.0.0.1:1337".parse().unwrap();
-    let server = Http::new().bind(&addr, move|| Ok(Test {
-        drivers: chrome_drivers.clone()
-    })).unwrap();
-    println!("Listening on http://{} with 1 thread.", server.local_addr().unwrap());
+    let server = Http::new()
+        .bind(&addr, move || Ok(Test { drivers: chrome_drivers.clone() }))
+        .unwrap();
+    println!("Listening on http://{} with 1 thread.",
+             server.local_addr().unwrap());
     server.run().unwrap();
 }
