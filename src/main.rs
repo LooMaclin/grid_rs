@@ -35,13 +35,15 @@ use hyper::Method;
 use hyper::Uri;
 use std::sync::Mutex;
 use std::cell::RefCell;
-
+use std::io::Read;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ChromeDriver {
     name: String,
     pub ip: String,
     #[serde(default)]
     disabled: bool,
+    #[serde(default)]
+    blocked: bool,
     #[serde(default)]
     current_browsers_count: u32,
 }
@@ -50,33 +52,43 @@ struct Test {
     drivers: Arc<Mutex<Vec<ChromeDriver>>>,
 }
 
-fn get_sessions(drivers: &mut Vec<ChromeDriver>) -> Vec<Result<Value, String>> {
+fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
     let mut core = tokio_core::reactor::Core::new().unwrap();
     let handle = core.handle();
     let client = &Client::new(&handle);
-    let work = drivers.iter().map(move |element| {
+    let work = drivers.iter_mut().map(move |element| {
         let url = format!("http://{}/sessions", element.ip).as_str().parse::<hyper::Uri>().unwrap();
         client.get(url.clone()).then(move |res| {
             println!("url: {:?}", url);
             println!("response: {:?}", res);
             match res {
                 Ok(response) => {
-                    let mut body = Vec::new();
-                    let full_body = response.body().fold(body, |mut body, chunk| {
-                        body.extend_from_slice(&chunk);
-                        Ok::<Vec<u8>, hyper::Error>(body)
-                    }).wait().unwrap();
-                    let value : Value = serde_json::from_slice(&full_body).unwrap();
-                    Ok::<Result<Value, String>, hyper::Error>(Ok(value))
+                    let fut = response.body().fold::<_, String, _>(String::new(), |mut acc, chunk| {
+                        let mut z : &[u8] = &*chunk;
+                        z.read_to_string(&mut acc);
+                        let result: Result<String, hyper::Error> = Ok(acc);
+                        result
+                    }).map_err(|_| "Ошибка");
+                    fut.and_then(|res_string| {
+                        if res_string == "Ошибка" {
+                            element.disabled = true;
+                            Ok(())
+                        } else {
+                            element.disabled = false;
+                            let value : Value = serde_json::from_str(&res_string.as_str()).unwrap();
+                            element.current_browsers_count = value["value"].as_array().unwrap().len() as u32;
+                            Ok(())
+                        }
+                    })
                 },
                 Err(err) => {
-                    Ok(Err::<Value, String>(String::from("abc")))
+                    Ok(Err(()))
                 }
             }
         })
     }).collect::<Vec<_>>();
     let work = join_all(work);
-    core.run(work).unwrap()
+    core.run(work).unwrap();
 }
 
 //fn kill_all(drivers_session: &Vec<Result<Value, hyper::Error>>, drivers: &Vec<ChromeDriver>) {
@@ -121,24 +133,13 @@ impl Service for Test {
         let mut drivers = self.drivers.lock().unwrap();
         futures::future::ok(match (req.method(), req.path()) {
             (&Get, "/url") => {
-                let mut values = get_sessions(&mut drivers);
-                for (index, driver) in drivers.iter().enumerate() {
-                    match values.remove(index) {
-                        Ok(response) => {
-                            println!("result {}: {:?}", index, response["value"].as_array().unwrap().len());
-                        },
-                        Err(error) => {
-                            println!("error: {}", error);
-                        }
-                    }
-
-                }
+                let mut values = update_drivers_information(&mut drivers);
                 Response::new()
                     .with_header(ContentLength(INDEX.len() as u64))
                     .with_body(INDEX)
             },
 //            (&Get, "/killall") => {
-//                let drivers_session = get_sessions(&mut drivers);
+//                let drivers_session = update_drivers_information(&mut drivers);
 //                println!("Drivers session: {:?}", drivers_session);
 ////                kill_all(&drivers_session, &drivers);
 //                Response::new()
