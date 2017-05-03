@@ -50,7 +50,7 @@ struct Test {
     drivers: Arc<Mutex<Vec<ChromeDriver>>>,
 }
 
-fn get_sessions(drivers: &mut Vec<ChromeDriver>) -> Vec<Result<Value, hyper::Error>> {
+fn get_sessions(drivers: &mut Vec<ChromeDriver>) -> Vec<Result<Value, String>> {
     let mut core = tokio_core::reactor::Core::new().unwrap();
     let handle = core.handle();
     let client = &Client::new(&handle);
@@ -66,12 +66,11 @@ fn get_sessions(drivers: &mut Vec<ChromeDriver>) -> Vec<Result<Value, hyper::Err
                         body.extend_from_slice(&chunk);
                         Ok::<Vec<u8>, hyper::Error>(body)
                     }).wait().unwrap();
-                        let value : Value = serde_json::from_slice(&full_body).unwrap();
-                        Ok(Ok(value))
+                    let value : Value = serde_json::from_slice(&full_body).unwrap();
+                    Ok::<Result<Value, String>, hyper::Error>(Ok(value))
                 },
                 Err(err) => {
-                    println!("abc");
-                    Err(err)
+                    Ok(Err::<Value, String>(String::from("abc")))
                 }
             }
         })
