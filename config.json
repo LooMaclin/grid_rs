@@ -1,10 +1,14 @@
 [
   {
-    "name": "Arsen Galimov",
+    "name": "Arsen Galimov 1",
     "ip": "127.0.0.1:9515"
   },
   {
-    "name": "Arsen Galimov",
+    "name": "Arsen Galimov 2",
     "ip": "127.0.0.1:9516"
+  },
+  {
+    "name": "Arsen Galimov 3",
+    "ip": "127.0.0.1:9517"
   }
 ]

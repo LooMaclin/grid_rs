@@ -36,6 +36,7 @@ use hyper::Uri;
 use std::sync::Mutex;
 use std::cell::RefCell;
 use std::io::Read;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ChromeDriver {
     name: String,
@@ -63,8 +64,7 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
             client.get(url.clone()).then(move |response| {
                 match response {
                     Ok(success_response) => {
-                        success_response
-                            .body()
+                        success_response.body()
                             .fold::<_, String, _>(String::new(), move |mut acc, chunk| {
                                 let mut z: &[u8] = &*chunk;
                                 z.read_to_string(&mut acc);
@@ -73,15 +73,16 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
                             })
                             .map_err(|_| ())
                             .and_then(move |response_payload| {
-                                    element.disabled = false;
-                                    let value: Value = serde_json::from_str(&response_payload.as_str())
-                                        .unwrap();
-                                    element.current_browsers_count =
-                                        value["value"].as_array().unwrap().len() as u32;
-                                    Ok::<(), ()>(())
-                            }).wait();
+                                element.disabled = false;
+                                let value: Value = serde_json::from_str(&response_payload.as_str())
+                                    .unwrap();
+                                element.current_browsers_count =
+                                    value["value"].as_array().unwrap().len() as u32;
+                                Ok::<(), ()>(())
+                            })
+                            .wait();
                         Ok::<(), ()>(())
-                    },
+                    }
                     Err(error_response) => {
                         element.disabled = true;
                         Ok::<(), ()>(())
@@ -95,38 +96,52 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
     core.run(work).unwrap();
 }
 
-// fn kill_all(drivers_session: &Vec<Result<Value, hyper::Error>>, drivers: &Vec<ChromeDriver>) {
-//    let mut core = tokio_core::reactor::Core::new().unwrap();
-//    let handle = core.handle();
-//    let client = &Client::new(&handle);
-//    let work =
-//        drivers.iter().flat_map(move |driver| {
-//            println!("driver : {:?}", driver);
-//            drivers_session.iter().flat_map(move |ref session| {
-//                let session = session.unwrap();
-//                session["value"].as_array().unwrap().iter().map(move |browser| {
-//                    let url = format!("http://{}/session/{}", driver.ip, browser["id"].as_str()\
-// .unwrap()).as_str().parse::<hyper::Uri>().unwrap();
-//                    println!("url: {:?}", url);
-//                    let request = ClientRequest::new(Method::Delete, url);
-//                    client.request(request).and_then(|res| {
-//                        println!("response: {:?}", res);
-//                        let mut body = Vec::new();
-//                        res.body().fold(body, |mut body, chunk| {
-//                            body.extend_from_slice(&chunk);
-//                            Ok::<Vec<u8>, hyper::Error>(body)
-//                        }).map(|full_body| {
-//                            println!("response recevied");
-//                            let value : Value = serde_json::from_slice(&full_body).unwrap();
-//                            value
-//                        })
-//                    })
-//                })
-//        })
-//    }).collect::<Vec<_>>();
-//    let work = join_all(work);
-//    let result = core.run(work).unwrap();
-// }
+fn get_minimal_loaded_driver(mut drivers: &mut Vec<ChromeDriver>) -> hyper::server::Response {
+    update_drivers_information(&mut drivers);
+    let mut minimal_loaded_driver = drivers.iter_mut()
+        .filter(|driver| {
+            println!("driver: {:?}", driver);
+            !driver.blocked && !driver.disabled
+        })
+        .min_by_key(|driver| driver.current_browsers_count);
+    match minimal_loaded_driver {
+        Some(driver_instance) => {
+            driver_instance.blocked = true;
+            let driver_json_representation = serde_json::to_string(&driver_instance).unwrap();
+            Response::new()
+                .with_header(ContentLength(driver_json_representation.len() as u64))
+                .with_body(driver_json_representation)
+        }
+        None => {
+            Response::new()
+                .with_header(ContentLength(r#"{ "error": "Ни один вебдрайвер из конфигурации не доступен." }"#.len() as u64))
+                .with_status(StatusCode::NotFound)
+                .with_body(r#"{ "error": "Ни один вебдрайвер из конфигурации не доступен." }"#)
+        }
+    }
+}
+
+fn unlock_driver(mut drivers: &mut Vec<ChromeDriver>, driver_ip_to_unlock: &str) -> hyper::server::Response {
+    let mut driver_to_unlock_option = drivers
+        .iter_mut()
+        .find(|driver| driver.ip == driver_ip_to_unlock);
+    match driver_to_unlock_option {
+        Some(driver_to_unlock) => {
+            driver_to_unlock.blocked = false;
+            Response::new()
+                .with_header(ContentLength(r#"{ "status": "Указанный драйвер разблокирован." }"#.len() as u64))
+                .with_body(r#"{ "status": "Указанный драйвер разблокирован." }"#)
+        },
+        None => {
+            Response::new()
+                .with_header(ContentLength(r#"{ "error": "Указанный драйвер для разблокировки не найден в списке. Проверьте конфигурацию grid_rs." }"#.len() as u64))
+                .with_status(StatusCode::NotFound)
+                .with_body(r#"{ "error": "Указанный драйвер для разблокировки не найден в списке. Проверьте конфигурацию grid_rs." }"#)
+        }
+    }
+
+
+}
 
 impl Service for Test {
     type Request = Request;
@@ -137,23 +152,33 @@ impl Service for Test {
     fn call(&self, req: Request) -> Self::Future {
         let mut drivers = self.drivers.lock().unwrap();
         futures::future::ok(match (req.method(), req.path()) {
-            (&Get, "/url") => {
-                update_drivers_information(&mut drivers);
-                for (index, driver) in drivers.iter().enumerate() {
-                    println!("Index: {}. Driver {:?}", index, driver);
+            (&Get, "/url") => get_minimal_loaded_driver(&mut drivers),
+            (&Post, "/unlock") => {
+                println!("payload!");
+                let payload_fold_result = req.body()
+                    .fold::<_, String, _>(String::new(), move |mut acc, chunk| {
+                        let mut z: &[u8] = &*chunk;
+                        z.read_to_string(&mut acc);
+                        let result: Result<String, hyper::Error> = Ok(acc);
+                        result
+                    })
+                    .wait();
+                println!("payload!");
+                match payload_fold_result {
+                    Ok(payload) => {
+                        let driver_ip_to_unlock : Value = serde_json::from_str(&payload.as_str()).unwrap();
+                        let driver_ip_to_unlock : &str = driver_ip_to_unlock["ip"].as_str().unwrap();
+                        unlock_driver(&mut drivers, driver_ip_to_unlock)
+                    },
+                    Err(err) => {
+                        Response::new()
+                            .with_header(ContentLength(r#"{ "error": "При POST запросе необходимо указать драйвер, который вы хотите разблокировать." }"#.len() as u64))
+                            .with_status(StatusCode::NotFound)
+                            .with_body(r#"{ "error": "При POST запросе необходимо указать драйвер, который вы хотите разблокировать." }"#)
+                    }
                 }
-                Response::new()
-                    .with_header(ContentLength(INDEX.len() as u64))
-                    .with_body(INDEX)
+
             }
-            //            (&Get, "/killall") => {
-            //                let drivers_session = update_drivers_information(&mut drivers);
-            //                println!("Drivers session: {:?}", drivers_session);
-            // /                kill_all(&drivers_session, &drivers);
-            //                Response::new()
-            //                    .with_header(ContentLength(INDEX.len() as u64))
-            //                    .with_body(INDEX)
-            //            },
             _ => Response::new().with_status(StatusCode::NotFound),
         })
     }
