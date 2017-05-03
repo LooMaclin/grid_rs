@@ -61,8 +61,6 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
             let url =
                 format!("http://{}/sessions", element.ip).as_str().parse::<hyper::Uri>().unwrap();
             client.get(url.clone()).then(move |response| {
-                println!("url: {:?}", url);
-                println!("response: {:?}", response);
                 match response {
                     Ok(success_response) => {
                         success_response
@@ -73,24 +71,19 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
                                 let result: Result<String, hyper::Error> = Ok(acc);
                                 result
                             })
-                            .then(move |response_payload| {
-                                let response_payload =
-                                    response_payload.unwrap_or(String::from("Ошибка"));
-                                if response_payload == "Ошибка" {
-                                    element.disabled = true;
-                                    Ok::<(), ()>(())
-                                } else {
+                            .map_err(|_| ())
+                            .and_then(move |response_payload| {
                                     element.disabled = false;
                                     let value: Value = serde_json::from_str(&response_payload.as_str())
                                         .unwrap();
                                     element.current_browsers_count =
                                         value["value"].as_array().unwrap().len() as u32;
                                     Ok::<(), ()>(())
-                                }
-                            });
+                            }).wait();
                         Ok::<(), ()>(())
                     },
                     Err(error_response) => {
+                        element.disabled = true;
                         Ok::<(), ()>(())
                     }
                 }
@@ -145,7 +138,10 @@ impl Service for Test {
         let mut drivers = self.drivers.lock().unwrap();
         futures::future::ok(match (req.method(), req.path()) {
             (&Get, "/url") => {
-                let mut values = update_drivers_information(&mut drivers);
+                update_drivers_information(&mut drivers);
+                for (index, driver) in drivers.iter().enumerate() {
+                    println!("Index: {}. Driver {:?}", index, driver);
+                }
                 Response::new()
                     .with_header(ContentLength(INDEX.len() as u64))
                     .with_body(INDEX)
