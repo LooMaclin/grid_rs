@@ -87,7 +87,8 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
                                         value["value"].as_array().unwrap().len() as u32;
                                     Ok::<(), ()>(())
                                 }
-                            }).wait()
+                            });
+                        Ok::<(), ()>(())
                     },
                     Err(error_response) => {
                         Ok::<(), ()>(())
