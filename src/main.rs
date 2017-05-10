@@ -151,20 +151,21 @@ impl Service for Test {
     type Future = Box<Future<Item = self::Response, Error = hyper::error::Error>>;
 
     fn call(&self, req: Request) -> Self::Future {
-        let mut drivers = self.drivers.clone();
         match (req.method(), req.path()) {
-            (&Get, "/url") => Box::new(ok(get_minimal_loaded_driver(&mut drivers.lock().unwrap()))),
+            (&Get, "/url") => Box::new(ok(get_minimal_loaded_driver(&mut self.drivers.lock().unwrap()))),
             (&Post, "/unlock") => {
                 let body = Vec::new();
+                let mut drivers = self.drivers.clone();
                 Box::new(req.body()
                     .fold(body, move |mut body, chunk| {
                         body.extend_from_slice(&chunk);
                         Ok::<Vec<u8>, hyper::Error>(body)
                     })
                     .map(move |payload| {
+                        let mut drivers = drivers.lock().unwrap();
                         let driver_ip_to_unlock : Value = serde_json::from_slice(&payload).unwrap();
                         let driver_ip_to_unlock : &str = driver_ip_to_unlock["ip"].as_str().unwrap();
-                        unlock_driver(&mut drivers.lock().unwrap(), driver_ip_to_unlock)
+                        unlock_driver(&mut drivers, driver_ip_to_unlock)
                     }))
             }
             _ => Box::new(ok(Response::new().with_status(StatusCode::NotFound))),
