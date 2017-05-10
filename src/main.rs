@@ -35,6 +35,7 @@ use hyper::Method;
 use hyper::Uri;
 use std::sync::Mutex;
 use std::cell::RefCell;
+use futures::future::{ok};
 use std::io::Read;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -147,40 +148,27 @@ impl Service for Test {
     type Request = Request;
     type Response = Response;
     type Error = hyper::Error;
-    type Future = FutureResult<Response, hyper::Error>;
+    type Future = Box<Future<Item = self::Response, Error = hyper::error::Error>>;
 
     fn call(&self, req: Request) -> Self::Future {
         let mut drivers = self.drivers.lock().unwrap();
-        futures::future::ok(match (req.method(), req.path()) {
-            (&Get, "/url") => get_minimal_loaded_driver(&mut drivers),
+        match (req.method(), req.path()) {
+            (&Get, "/url") => Box::new(ok(get_minimal_loaded_driver(&mut drivers))),
             (&Post, "/unlock") => {
-                println!("payload!");
-                let payload_fold_result = req.body()
-                    .fold::<_, String, _>(String::new(), move |mut acc, chunk| {
-                        let mut z: &[u8] = &*chunk;
-                        z.read_to_string(&mut acc);
-                        let result: Result<String, hyper::Error> = Ok(acc);
-                        result
+                let body = Vec::new();
+                Box::new(req.body()
+                    .fold(body, move |mut body, chunk| {
+                        body.extend_from_slice(&chunk);
+                        Ok::<Vec<u8>, hyper::Error>(body)
                     })
-                    .wait();
-                println!("payload!");
-                match payload_fold_result {
-                    Ok(payload) => {
-                        let driver_ip_to_unlock : Value = serde_json::from_str(&payload.as_str()).unwrap();
+                    .map(move |payload| {
+                        let driver_ip_to_unlock : Value = serde_json::from_slice(&payload).unwrap();
                         let driver_ip_to_unlock : &str = driver_ip_to_unlock["ip"].as_str().unwrap();
                         unlock_driver(&mut drivers, driver_ip_to_unlock)
-                    },
-                    Err(err) => {
-                        Response::new()
-                            .with_header(ContentLength(r#"{ "error": "При POST запросе необходимо указать драйвер, который вы хотите разблокировать." }"#.len() as u64))
-                            .with_status(StatusCode::NotFound)
-                            .with_body(r#"{ "error": "При POST запросе необходимо указать драйвер, который вы хотите разблокировать." }"#)
-                    }
-                }
-
+                    }))
             }
-            _ => Response::new().with_status(StatusCode::NotFound),
-        })
+            _ => Box::new(ok(Response::new().with_status(StatusCode::NotFound))),
+        }
     }
 }
 
