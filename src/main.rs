@@ -169,7 +169,7 @@ impl Service for Test {
                         unlock_driver(&mut drivers, driver_ip_to_unlock)
                     }))
             },
-            (&Get, "/api/status") => {
+            (&Get, "/status") => {
                 let mut drivers = self.drivers.clone();
                 let mut drivers = drivers.lock().unwrap();
                 let mut status = serde_json::to_string(&drivers.deref()).unwrap();
@@ -192,6 +192,13 @@ fn main() {
             .long("config")
             .value_name("FILE")
             .help("Sets a custom config file")
+            .takes_value(true))
+        .arg(Arg::with_name("port")
+            .short("p")
+            .required(true)
+            .long("port")
+            .value_name("PORT")
+            .help("Sets a port")
             .takes_value(true))
         .get_matches();
     let file = std::fs::File::open(matches.value_of("config").unwrap()).unwrap();
