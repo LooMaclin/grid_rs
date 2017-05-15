@@ -37,6 +37,7 @@ use std::sync::Mutex;
 use std::cell::RefCell;
 use futures::future::{ok};
 use std::io::Read;
+use std::ops::Deref;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ChromeDriver {
@@ -167,7 +168,14 @@ impl Service for Test {
                         let driver_ip_to_unlock : &str = driver_ip_to_unlock["ip"].as_str().unwrap();
                         unlock_driver(&mut drivers, driver_ip_to_unlock)
                     }))
-            }
+            },
+            (&Get, "/api/status") => {
+                let mut drivers = self.drivers.clone();
+                let mut drivers = drivers.lock().unwrap();
+                let mut status = serde_json::to_string(&drivers.deref()).unwrap();
+                let status_len : u64 = status.len() as u64;
+                Box::new(ok(Response::new().with_status(StatusCode::Ok).with_body(status).with_header(ContentLength(status_len))))
+            },
             _ => Box::new(ok(Response::new().with_status(StatusCode::NotFound))),
         }
     }
@@ -190,7 +198,7 @@ fn main() {
     let mut buf_reader = BufReader::new(file);
     let chrome_drivers: Arc<Mutex<Vec<ChromeDriver>>> =
         Arc::new(Mutex::new(serde_json::from_reader(buf_reader).unwrap()));
-    let addr = "127.0.0.1:1337".parse().unwrap();
+    let addr = "172.16.124.165:8000".parse().unwrap();
     let server = Http::new()
         .bind(&addr, move || Ok(Test { drivers: chrome_drivers.clone() }))
         .unwrap();
