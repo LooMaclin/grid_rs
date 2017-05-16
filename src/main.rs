@@ -202,10 +202,11 @@ fn main() {
             .takes_value(true))
         .get_matches();
     let file = std::fs::File::open(matches.value_of("config").unwrap()).unwrap();
+    let port = matches.value_of("port").unwrap();
     let mut buf_reader = BufReader::new(file);
     let chrome_drivers: Arc<Mutex<Vec<ChromeDriver>>> =
         Arc::new(Mutex::new(serde_json::from_reader(buf_reader).unwrap()));
-    let addr = "172.16.124.165:8000".parse().unwrap();
+    let addr = format!("127.0.0.1:{}", port).as_str().parse().unwrap();
     let server = Http::new()
         .bind(&addr, move || Ok(Test { drivers: chrome_drivers.clone() }))
         .unwrap();
