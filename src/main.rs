@@ -10,6 +10,9 @@ extern crate futures;
 extern crate hyper;
 extern crate tokio_core;
 extern crate itertools;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 
 use futures::future::FutureResult;
 use hyper::{Get, Post, StatusCode};
@@ -38,6 +41,7 @@ use std::cell::RefCell;
 use futures::future::{ok};
 use std::io::Read;
 use std::ops::Deref;
+use std::time::Duration;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ChromeDriver {
@@ -58,14 +62,24 @@ struct Test {
 fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
     let mut core = tokio_core::reactor::Core::new().unwrap();
     let handle = core.handle();
-    let client = &Client::new(&handle);
+    let client = &Client::configure()
+        .keep_alive(true)
+        .keep_alive_timeout(Some(Duration::from_secs(3)))
+        .build(&handle);
     let work = drivers.iter_mut()
+        .filter(|driver| {
+            println!("driver: {:?}", driver);
+            !driver.blocked && !driver.disabled
+        })
         .map(move |element| {
             let url =
                 format!("http://{}/sessions", element.ip).as_str().parse::<hyper::Uri>().unwrap();
+            println!("ОПРОС ДРАЙВЕРА: {:?}", element);
             client.get(url.clone()).then(move |response| {
+                println!("Get url: {:?}", url);
                 match response {
                     Ok(success_response) => {
+                        println!("Response Ok: {:?}", success_response);
                         success_response.body()
                             .fold::<_, String, _>(String::new(), move |mut acc, chunk| {
                                 let mut z: &[u8] = &*chunk;
@@ -75,6 +89,7 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
                             })
                             .map_err(|_| ())
                             .and_then(move |response_payload| {
+                                println!("Данные ответа от драйвера собраны: {}", response_payload);
                                 element.disabled = false;
                                 let value: Value = serde_json::from_str(&response_payload.as_str())
                                     .unwrap();
@@ -86,6 +101,7 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
                         Ok::<(), ()>(())
                     }
                     Err(error_response) => {
+                        println!("Response Er: {:?}", error_response);
                         element.disabled = true;
                         Ok::<(), ()>(())
                     }
@@ -153,8 +169,14 @@ impl Service for Test {
 
     fn call(&self, req: Request) -> Self::Future {
         match (req.method(), req.path()) {
-            (&Get, "/url") => Box::new(ok(get_minimal_loaded_driver(&mut self.drivers.lock().unwrap()))),
+            (&Get, "/url") => {
+                info!("Request url...");
+                info!("Request data: {:?}", req);
+                Box::new(ok(get_minimal_loaded_driver(&mut self.drivers.lock().unwrap())))
+            },
             (&Post, "/unlock") => {
+                info!("Request unlock...");
+                info!("Request data: {:?}", req);
                 let body = Vec::new();
                 let mut drivers = self.drivers.clone();
                 Box::new(req.body()
@@ -163,13 +185,17 @@ impl Service for Test {
                         Ok::<Vec<u8>, hyper::Error>(body)
                     })
                     .map(move |payload| {
+                        println!("Попытка захвата мьютекса");
                         let mut drivers = drivers.lock().unwrap();
+                        println!("Мьютекс захвачен ща всё сделаем");
                         let driver_ip_to_unlock : Value = serde_json::from_slice(&payload).unwrap();
                         let driver_ip_to_unlock : &str = driver_ip_to_unlock["ip"].as_str().unwrap();
                         unlock_driver(&mut drivers, driver_ip_to_unlock)
                     }))
             },
             (&Get, "/status") => {
+                info!("Request status...");
+                info!("Request data: {:?}", req);
                 let mut drivers = self.drivers.clone();
                 let mut drivers = drivers.lock().unwrap();
                 let mut status = serde_json::to_string(&drivers.deref()).unwrap();
@@ -182,6 +208,8 @@ impl Service for Test {
 }
 
 fn main() {
+    env_logger::init().unwrap();
+    info!("starting up");
     let matches = App::new("Grid rs")
         .version("1.0")
         .author("Arsen Galimov")
