@@ -103,9 +103,9 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
                                     .unwrap();
                                 element.current_browsers_count =
                                     value["value"].as_array().unwrap().len() as u8;
+                                println!("current browsers count: {}", element.current_browsers_count);
                                 Ok::<(), ()>(())
-                            });
-                        Ok::<(), ()>(())
+                            }).wait()
                     }
                     Err(error_response) => {
                         println!("Response Er: {:?}", error_response);
@@ -125,7 +125,7 @@ fn get_minimal_loaded_driver(mut drivers: &mut Vec<ChromeDriver>) -> hyper::serv
     update_drivers_information(&mut drivers);
     let mut minimal_loaded_driver = drivers.iter_mut()
         .filter(|driver| {
-            println!("driver: {:?}", driver);
+            println!("DRIVER IN FILTER: {:?}", driver);
             !driver.blocked && !driver.disabled && driver.current_browsers_count < driver.max_count
         })
         .min_by_key(|driver| driver.current_browsers_count);
