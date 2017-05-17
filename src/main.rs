@@ -53,6 +53,12 @@ struct ChromeDriver {
     blocked: bool,
     #[serde(default)]
     current_browsers_count: u32,
+    #[serde(default="default_max_browsers")]
+    max_count: u8
+}
+
+fn default_max_browsers() -> u8 {
+    2
 }
 
 struct Test {
@@ -82,22 +88,23 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
                         println!("Response Ok: {:?}", success_response);
                         success_response.body()
                             .fold::<_, String, _>(String::new(), move |mut acc, chunk| {
+                                println!("start folding payload");
                                 let mut z: &[u8] = &*chunk;
+                                println!("пытаемся прочесть данные");
                                 z.read_to_string(&mut acc);
                                 let result: Result<String, hyper::Error> = Ok(acc);
+                                println!("end folding: {:?}", result);
                                 result
                             })
-                            .map_err(|_| ())
-                            .and_then(move |response_payload| {
-                                println!("Данные ответа от драйвера собраны: {}", response_payload);
+                            .then(move |response_payload| {
+                                println!("Данные ответа от драйвера собраны: {:?}", response_payload);
                                 element.disabled = false;
-                                let value: Value = serde_json::from_str(&response_payload.as_str())
+                                let value: Value = serde_json::from_str(&response_payload.unwrap().as_str())
                                     .unwrap();
                                 element.current_browsers_count =
                                     value["value"].as_array().unwrap().len() as u32;
                                 Ok::<(), ()>(())
-                            })
-                            .wait();
+                            });
                         Ok::<(), ()>(())
                     }
                     Err(error_response) => {
@@ -105,7 +112,7 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
                         element.disabled = true;
                         Ok::<(), ()>(())
                     }
-                }
+                }current_browsers_count
 
             })
         })
@@ -119,7 +126,7 @@ fn get_minimal_loaded_driver(mut drivers: &mut Vec<ChromeDriver>) -> hyper::serv
     let mut minimal_loaded_driver = drivers.iter_mut()
         .filter(|driver| {
             println!("driver: {:?}", driver);
-            !driver.blocked && !driver.disabled
+            !driver.blocked && !driver.disabled && driver.current_browsers_count < driver.max_count
         })
         .min_by_key(|driver| driver.current_browsers_count);
     match minimal_loaded_driver {
@@ -132,9 +139,9 @@ fn get_minimal_loaded_driver(mut drivers: &mut Vec<ChromeDriver>) -> hyper::serv
         }
         None => {
             Response::new()
-                .with_header(ContentLength(r#"{ "error": "Ни один вебдрайвер из конфигурации не доступен." }"#.len() as u64))
+                .with_header(ContentLength(r#"{ "error": "No free driver" }"#.len() as u64))
                 .with_status(StatusCode::NotFound)
-                .with_body(r#"{ "error": "Ни один вебдрайвер из конфигурации не доступен." }"#)
+                .with_body(r#"{ "error": "No free driver" }"#)
         }
     }
 }
@@ -147,14 +154,14 @@ fn unlock_driver(mut drivers: &mut Vec<ChromeDriver>, driver_ip_to_unlock: &str)
         Some(driver_to_unlock) => {
             driver_to_unlock.blocked = false;
             Response::new()
-                .with_header(ContentLength(r#"{ "status": "Указанный драйвер разблокирован." }"#.len() as u64))
-                .with_body(r#"{ "status": "Указанный драйвер разблокирован." }"#)
+                .with_header(ContentLength(r#"{ "status": "Driver unlocked" }"#.len() as u64))
+                .with_body(r#"{ "status": "Driver unlocked" }"#)
         },
         None => {
             Response::new()
-                .with_header(ContentLength(r#"{ "error": "Указанный драйвер для разблокировки не найден в списке. Проверьте конфигурацию grid_rs." }"#.len() as u64))
+                .with_header(ContentLength(r#"{ "error": "Driver not found" }"#.len() as u64))
                 .with_status(StatusCode::NotFound)
-                .with_body(r#"{ "error": "Указанный драйвер для разблокировки не найден в списке. Проверьте конфигурацию grid_rs." }"#)
+                .with_body(r#"{ "error": "Driver not found" }"#)
         }
     }
 
