@@ -52,7 +52,7 @@ struct ChromeDriver {
     #[serde(default)]
     blocked: bool,
     #[serde(default)]
-    current_browsers_count: u32,
+    current_browsers_count: u8,
     #[serde(default="default_max_browsers")]
     max_count: u8
 }
@@ -102,7 +102,7 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
                                 let value: Value = serde_json::from_str(&response_payload.unwrap().as_str())
                                     .unwrap();
                                 element.current_browsers_count =
-                                    value["value"].as_array().unwrap().len() as u32;
+                                    value["value"].as_array().unwrap().len() as u8;
                                 Ok::<(), ()>(())
                             });
                         Ok::<(), ()>(())
@@ -112,7 +112,7 @@ fn update_drivers_information(drivers: &mut Vec<ChromeDriver>) {
                         element.disabled = true;
                         Ok::<(), ()>(())
                     }
-                }current_browsers_count
+                }
 
             })
         })
