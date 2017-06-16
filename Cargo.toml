@@ -4,14 +4,12 @@ version = "0.1.0"
 authors = ["agalimov@it.ru <loo.maclin@protonmail.com>"]
 
 [dependencies]
-clap = "2.23.3"
-serde = "1.0.1"
-serde_json = "1.0.0"
-serde_derive = "1.0.1"
-tokio-core = "0.1.6"
-futures = "0.1.13"
-hyper = { git = "https://github.com/hyperium/hyper.git" }
-itertools = "0.6.0"
-net2 = "0.2.27"
+clap = "2.24.2"
+serde = "1.0.8"
+serde_json = "1.0.2"
+serde_derive = "1.0.8"
+tokio-core = "0.1.8"
+futures = "0.1.14"
+hyper = "0.11.0"
 log = "0.3.7"
 env_logger = "0.4.2"

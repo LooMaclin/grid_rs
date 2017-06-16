@@ -9,7 +9,6 @@ extern crate serde_derive;
 extern crate futures;
 extern crate hyper;
 extern crate tokio_core;
-extern crate itertools;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -32,7 +31,6 @@ use std::str::from_utf8;
 use hyper::{Client, Chunk};
 use serde_json::Value;
 use std::sync::Arc;
-use itertools::interleave;
 use std::str::FromStr;
 use hyper::Method;
 use hyper::Uri;
